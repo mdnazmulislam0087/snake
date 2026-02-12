@@ -1,50 +1,210 @@
-// Neon Snake game using a 600x600 canvas and fixed grid movement.
+// Neon Snake with restart-applied settings and persisted high score.
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 
 const scoreEl = document.getElementById("score");
+const highScoreEl = document.getElementById("highScore");
 const statusEl = document.getElementById("status");
 const startBtn = document.getElementById("startBtn");
 const overlay = document.getElementById("overlay");
 const overlayTitle = document.getElementById("overlayTitle");
 const overlayText = document.getElementById("overlayText");
 
-const CANVAS_SIZE = 600;
-const CELL_SIZE = 20;
-const GRID_COUNT = CANVAS_SIZE / CELL_SIZE;
+const gridSizeSelect = document.getElementById("gridSizeSelect");
+const speedSelect = document.getElementById("speedSelect");
+const themeSelect = document.getElementById("themeSelect");
 
-const INITIAL_SPEED = 140; // milliseconds per tick
-const MIN_SPEED = 70;
+const CANVAS_SIZE = 600;
 const SPEED_STEP = 4;
+const MIN_SPEED = 60;
+
+const STORAGE_KEYS = {
+  highScore: "neonSnakeHighScore",
+  settings: "neonSnakeSettings",
+};
+
+const DEFAULT_SETTINGS = Object.freeze({
+  gridSize: 15,
+  speed: "normal",
+  theme: "neon",
+});
+
+const SPEED_PRESETS = Object.freeze({
+  slow: 180,
+  normal: 140,
+  fast: 100,
+});
+
+const THEMES = Object.freeze({
+  neon: {
+    "--bg-1": "#090e29",
+    "--bg-2": "#1a1145",
+    "--panel": "rgba(8, 12, 34, 0.7)",
+    "--text": "#e6ecff",
+    "--accent": "#5df2ff",
+    "--accent-2": "#ff5de1",
+    "--snake-head": "#9aff2e",
+    "--snake-body": "#40f9a2",
+    "--food": "#ff6b9b",
+    "--grid": "rgba(93, 242, 255, 0.08)",
+    "--canvas-bg": "rgba(2, 6, 24, 0.95)",
+    "--snake-head-glow": "rgba(154, 255, 46, 0.95)",
+    "--snake-body-glow": "rgba(64, 249, 162, 0.85)",
+    "--food-glow": "rgba(255, 107, 155, 0.95)",
+    "--button-grad-1": "rgba(93, 242, 255, 0.15)",
+    "--button-grad-2": "rgba(255, 93, 225, 0.15)",
+  },
+  retro: {
+    "--bg-1": "#20140f",
+    "--bg-2": "#5b2c15",
+    "--panel": "rgba(43, 22, 11, 0.78)",
+    "--text": "#ffe7bc",
+    "--accent": "#ffd166",
+    "--accent-2": "#ff8c42",
+    "--snake-head": "#f4ff5d",
+    "--snake-body": "#ffb347",
+    "--food": "#ff4f6f",
+    "--grid": "rgba(255, 209, 102, 0.11)",
+    "--canvas-bg": "rgba(30, 15, 7, 0.95)",
+    "--snake-head-glow": "rgba(244, 255, 93, 0.92)",
+    "--snake-body-glow": "rgba(255, 179, 71, 0.85)",
+    "--food-glow": "rgba(255, 79, 111, 0.9)",
+    "--button-grad-1": "rgba(255, 209, 102, 0.15)",
+    "--button-grad-2": "rgba(255, 140, 66, 0.2)",
+  },
+  ocean: {
+    "--bg-1": "#031524",
+    "--bg-2": "#09355c",
+    "--panel": "rgba(4, 29, 51, 0.74)",
+    "--text": "#d7f4ff",
+    "--accent": "#62e4ff",
+    "--accent-2": "#4ab0ff",
+    "--snake-head": "#66ffd6",
+    "--snake-body": "#47d5ff",
+    "--food": "#ffd166",
+    "--grid": "rgba(98, 228, 255, 0.1)",
+    "--canvas-bg": "rgba(2, 22, 38, 0.95)",
+    "--snake-head-glow": "rgba(102, 255, 214, 0.92)",
+    "--snake-body-glow": "rgba(71, 213, 255, 0.85)",
+    "--food-glow": "rgba(255, 209, 102, 0.9)",
+    "--button-grad-1": "rgba(98, 228, 255, 0.15)",
+    "--button-grad-2": "rgba(74, 176, 255, 0.2)",
+  },
+});
 
 let snake;
 let direction;
 let pendingDirection;
 let food;
 let score;
+let highScore = loadHighScore();
 let gameInterval;
 let currentSpeed;
+let cellSize;
+let gridCount;
 let isRunning = false;
 let isPaused = false;
 let hasStarted = false;
 
-// Start in a clean state and draw the board once.
+// Settings are read from the panel and only applied when restart/start is pressed.
+let appliedSettings = loadSettings();
+
+initializeSettingsUI();
+applyTheme(appliedSettings.theme);
 resetGame();
+renderScores();
 draw();
 
 startBtn.addEventListener("click", () => {
-  // Always restart from a clean state so post-game restart works correctly.
+  appliedSettings = readSettingsFromUI();
+  saveSettings(appliedSettings);
+  applyTheme(appliedSettings.theme);
+
+  // Restart always starts from a fresh state and applies panel settings.
   resetGame();
   startGame();
 });
 
 window.addEventListener("keydown", handleKeydown);
 
+function initializeSettingsUI() {
+  gridSizeSelect.value = String(appliedSettings.gridSize);
+  speedSelect.value = appliedSettings.speed;
+  themeSelect.value = appliedSettings.theme;
+}
+
+function readSettingsFromUI() {
+  const raw = {
+    gridSize: Number.parseInt(gridSizeSelect.value, 10),
+    speed: speedSelect.value,
+    theme: themeSelect.value,
+  };
+
+  return sanitizeSettings(raw);
+}
+
+function sanitizeSettings(settings) {
+  const safeGridSize = [10, 15, 20].includes(settings.gridSize)
+    ? settings.gridSize
+    : DEFAULT_SETTINGS.gridSize;
+
+  const safeSpeed = Object.prototype.hasOwnProperty.call(SPEED_PRESETS, settings.speed)
+    ? settings.speed
+    : DEFAULT_SETTINGS.speed;
+
+  const safeTheme = Object.prototype.hasOwnProperty.call(THEMES, settings.theme)
+    ? settings.theme
+    : DEFAULT_SETTINGS.theme;
+
+  return {
+    gridSize: safeGridSize,
+    speed: safeSpeed,
+    theme: safeTheme,
+  };
+}
+
+function applyTheme(themeName) {
+  const theme = THEMES[themeName] || THEMES[DEFAULT_SETTINGS.theme];
+  const rootStyle = document.documentElement.style;
+
+  Object.entries(theme).forEach(([key, value]) => {
+    rootStyle.setProperty(key, value);
+  });
+}
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.settings);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+
+    const parsed = JSON.parse(raw);
+    return sanitizeSettings(parsed);
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings(settings) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings));
+  } catch {
+    // Ignore storage failures so gameplay continues.
+  }
+}
+
+function configureGrid(gridSize) {
+  gridCount = gridSize;
+  cellSize = CANVAS_SIZE / gridCount;
+}
+
+function getSpeedFromPreset(preset) {
+  return SPEED_PRESETS[preset] || SPEED_PRESETS.normal;
+}
+
 function handleKeydown(event) {
   const key = event.key.toLowerCase();
 
-  // Pause/Resume with Spacebar (only after game has started).
   if (event.code === "Space") {
     event.preventDefault();
     if (hasStarted) {
@@ -56,8 +216,7 @@ function handleKeydown(event) {
   const nextDir = getDirectionFromKey(key);
   if (!nextDir || !isRunning || isPaused) return;
 
-  // Prevent reversing direction by checking against pending direction,
-  // so rapid key presses between ticks cannot create illegal reversals.
+  // Prevent reverse turns between ticks when users press quickly.
   if (isReverse(nextDir, pendingDirection)) return;
 
   pendingDirection = nextDir;
@@ -94,26 +253,30 @@ function startGame() {
 
 function resetGame() {
   clearInterval(gameInterval);
+  configureGrid(appliedSettings.gridSize);
 
-  // Snake begins near center with length 3.
+  // Spawn snake near center and aligned for rightward movement.
+  const centerX = Math.floor(gridCount / 2);
+  const centerY = Math.floor(gridCount / 2);
   snake = [
-    { x: 14, y: 15 },
-    { x: 13, y: 15 },
-    { x: 12, y: 15 },
+    { x: centerX, y: centerY },
+    { x: centerX - 1, y: centerY },
+    { x: centerX - 2, y: centerY },
   ];
 
   direction = { x: 1, y: 0 };
   pendingDirection = { ...direction };
   food = spawnFood(snake);
   score = 0;
-  currentSpeed = INITIAL_SPEED;
+  currentSpeed = getSpeedFromPreset(appliedSettings.speed);
 
   isRunning = false;
   isPaused = false;
   hasStarted = false;
   statusEl.textContent = "Ready";
-  scoreEl.textContent = "Score: 0";
+  renderScores();
   setOverlay(true, "Neon Snake", "Press Start Game to begin.");
+  draw();
 }
 
 function togglePause() {
@@ -148,10 +311,14 @@ function tick() {
 
   snake.unshift(nextHead);
 
-  // Eat food: grow snake, increase score, and slightly speed up game.
   if (willGrow) {
     score += 10;
-    scoreEl.textContent = `Score: ${score}`;
+    if (score > highScore) {
+      highScore = score;
+      saveHighScore(highScore);
+    }
+
+    renderScores();
     food = spawnFood(snake);
     increaseSpeed();
   } else {
@@ -167,19 +334,18 @@ function increaseSpeed() {
 
   currentSpeed = nextSpeed;
 
-  // Restart interval so the new speed is applied immediately.
+  // Restart interval so speed updates immediately after food is eaten.
   clearInterval(gameInterval);
   gameInterval = setInterval(tick, currentSpeed);
 }
 
 function isCollision(cell, growing = false) {
   const outsideBoard =
-    cell.x < 0 || cell.y < 0 || cell.x >= GRID_COUNT || cell.y >= GRID_COUNT;
+    cell.x < 0 || cell.y < 0 || cell.x >= gridCount || cell.y >= gridCount;
 
   if (outsideBoard) return true;
 
-  // If not growing, the tail moves away this tick, so ignore the current tail
-  // position when checking self-collision.
+  // If not growing, tail moves this tick, so skip current tail segment.
   const checkLength = growing ? snake.length : snake.length - 1;
   for (let i = 0; i < checkLength; i++) {
     if (snake[i].x === cell.x && snake[i].y === cell.y) return true;
@@ -191,10 +357,14 @@ function spawnFood(currentSnake) {
   let newFood;
   do {
     newFood = {
-      x: Math.floor(Math.random() * GRID_COUNT),
-      y: Math.floor(Math.random() * GRID_COUNT),
+      x: Math.floor(Math.random() * gridCount),
+      y: Math.floor(Math.random() * gridCount),
     };
-  } while (currentSnake.some((segment) => segment.x === newFood.x && segment.y === newFood.y));
+  } while (
+    currentSnake.some(
+      (segment) => segment.x === newFood.x && segment.y === newFood.y,
+    )
+  );
 
   return newFood;
 }
@@ -204,13 +374,40 @@ function gameOver() {
   isRunning = false;
   isPaused = false;
   statusEl.textContent = "Game Over";
-  setOverlay(true, "Game Over", `Final Score: ${score}. Press Restart Game.`);
+  setOverlay(
+    true,
+    "Game Over",
+    `Final Score: ${score}. High Score: ${highScore}. Press Restart Game.`,
+  );
 }
 
 function setOverlay(show, title = "", text = "") {
   overlay.classList.toggle("hidden", !show);
   if (title) overlayTitle.textContent = title;
   if (text) overlayText.textContent = text;
+}
+
+function loadHighScore() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.highScore);
+    const parsed = Number.parseInt(raw || "0", 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveHighScore(value) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.highScore, String(value));
+  } catch {
+    // Ignore storage failures so gameplay continues.
+  }
+}
+
+function renderScores() {
+  scoreEl.textContent = `Score: ${score || 0}`;
+  highScoreEl.textContent = `High Score: ${highScore}`;
 }
 
 function draw() {
@@ -222,11 +419,12 @@ function draw() {
 }
 
 function drawGrid() {
-  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--grid").trim();
+  ctx.strokeStyle =
+    getComputedStyle(document.documentElement).getPropertyValue("--grid").trim();
   ctx.lineWidth = 1;
 
-  for (let i = 0; i <= GRID_COUNT; i++) {
-    const pos = i * CELL_SIZE;
+  for (let i = 0; i <= gridCount; i++) {
+    const pos = i * cellSize;
 
     ctx.beginPath();
     ctx.moveTo(pos, 0);
@@ -241,38 +439,41 @@ function drawGrid() {
 }
 
 function drawSnake() {
-  const snakeHeadColor = getComputedStyle(document.documentElement).getPropertyValue("--snake-head").trim();
-  const snakeBodyColor = getComputedStyle(document.documentElement).getPropertyValue("--snake-body").trim();
+  const rootStyle = getComputedStyle(document.documentElement);
+  const snakeHeadColor = rootStyle.getPropertyValue("--snake-head").trim();
+  const snakeBodyColor = rootStyle.getPropertyValue("--snake-body").trim();
+  const snakeHeadGlow = rootStyle.getPropertyValue("--snake-head-glow").trim();
+  const snakeBodyGlow = rootStyle.getPropertyValue("--snake-body-glow").trim();
 
   snake.forEach((segment, index) => {
     const isHead = index === 0;
-    const x = segment.x * CELL_SIZE;
-    const y = segment.y * CELL_SIZE;
+    const x = segment.x * cellSize;
+    const y = segment.y * cellSize;
 
     ctx.fillStyle = isHead ? snakeHeadColor : snakeBodyColor;
-    ctx.shadowColor = isHead ? "rgba(154, 255, 46, 0.95)" : "rgba(64, 249, 162, 0.85)";
+    ctx.shadowColor = isHead ? snakeHeadGlow : snakeBodyGlow;
     ctx.shadowBlur = isHead ? 18 : 12;
 
-    // Rounded body segments for a modern neon look.
-    const radius = 5;
-    roundRect(ctx, x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2, radius);
+    const radius = Math.max(3, Math.floor(cellSize * 0.25));
+    roundRect(ctx, x + 1, y + 1, cellSize - 2, cellSize - 2, radius);
     ctx.fill();
   });
 
-  // Reset shadow so other objects render cleanly.
   ctx.shadowBlur = 0;
 }
 
 function drawFood() {
-  const foodColor = getComputedStyle(document.documentElement).getPropertyValue("--food").trim();
-  const x = food.x * CELL_SIZE + CELL_SIZE / 2;
-  const y = food.y * CELL_SIZE + CELL_SIZE / 2;
+  const rootStyle = getComputedStyle(document.documentElement);
+  const foodColor = rootStyle.getPropertyValue("--food").trim();
+  const foodGlow = rootStyle.getPropertyValue("--food-glow").trim();
+  const x = food.x * cellSize + cellSize / 2;
+  const y = food.y * cellSize + cellSize / 2;
 
   ctx.fillStyle = foodColor;
-  ctx.shadowColor = "rgba(255, 107, 155, 0.95)";
+  ctx.shadowColor = foodGlow;
   ctx.shadowBlur = 18;
   ctx.beginPath();
-  ctx.arc(x, y, CELL_SIZE * 0.35, 0, Math.PI * 2);
+  ctx.arc(x, y, cellSize * 0.35, 0, Math.PI * 2);
   ctx.fill();
   ctx.shadowBlur = 0;
 }
