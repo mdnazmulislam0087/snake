@@ -15,6 +15,8 @@ const overlayText = document.getElementById("overlayText");
 const gridSizeSelect = document.getElementById("gridSizeSelect");
 const speedSelect = document.getElementById("speedSelect");
 const themeSelect = document.getElementById("themeSelect");
+const soundToggle = document.getElementById("soundToggle");
+const soundLabel = document.getElementById("soundLabel");
 
 const CANVAS_SIZE = 600;
 const SPEED_STEP = 4;
@@ -36,6 +38,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   gridSize: 15,
   speed: "normal",
   theme: "neon",
+  soundOn: true,
 });
 
 const SPEED_PRESETS = Object.freeze({
@@ -117,6 +120,7 @@ let pausedAt = null;
 let isRunning = false;
 let isPaused = false;
 let hasStarted = false;
+let audioContext = null;
 
 // Settings are read from the panel and only applied when restart/start is pressed.
 let appliedSettings = loadSettings();
@@ -127,10 +131,19 @@ resetGame();
 renderScores();
 draw();
 
+updateSoundUI();
+soundToggle.addEventListener("change", () => {
+  appliedSettings.soundOn = soundToggle.checked;
+  saveSettings(appliedSettings);
+  updateSoundUI();
+  ensureAudioReady();
+});
+
 startBtn.addEventListener("click", () => {
   appliedSettings = readSettingsFromUI();
   saveSettings(appliedSettings);
   applyTheme(appliedSettings.theme);
+  ensureAudioReady();
 
   // Restart always starts from a fresh state and applies panel settings.
   resetGame();
@@ -143,6 +156,7 @@ function initializeSettingsUI() {
   gridSizeSelect.value = String(appliedSettings.gridSize);
   speedSelect.value = appliedSettings.speed;
   themeSelect.value = appliedSettings.theme;
+  soundToggle.checked = appliedSettings.soundOn;
 }
 
 function readSettingsFromUI() {
@@ -150,6 +164,7 @@ function readSettingsFromUI() {
     gridSize: Number.parseInt(gridSizeSelect.value, 10),
     speed: speedSelect.value,
     theme: themeSelect.value,
+    soundOn: soundToggle.checked,
   };
 
   return sanitizeSettings(raw);
@@ -172,6 +187,7 @@ function sanitizeSettings(settings) {
     gridSize: safeGridSize,
     speed: safeSpeed,
     theme: safeTheme,
+    soundOn: settings.soundOn !== false,
   };
 }
 
@@ -215,6 +231,7 @@ function getSpeedFromPreset(preset) {
 
 function handleKeydown(event) {
   const key = event.key.toLowerCase();
+  ensureAudioReady();
 
   if (event.code === "Space") {
     event.preventDefault();
@@ -338,6 +355,7 @@ function tick() {
   snake.unshift(nextHead);
 
   if (willGrow) {
+    playEatSound();
     score += 10;
     if (score > highScore) {
       highScore = score;
@@ -486,6 +504,7 @@ function updateEffectStatus() {
 }
 
 function gameOver() {
+  playGameOverSound();
   clearInterval(gameInterval);
   isRunning = false;
   isPaused = false;
@@ -526,6 +545,84 @@ function saveHighScore(value) {
 function renderScores() {
   scoreEl.textContent = `Score: ${score || 0}`;
   highScoreEl.textContent = `High Score: ${highScore}`;
+}
+
+function updateSoundUI() {
+  soundLabel.textContent = appliedSettings.soundOn ? "ON" : "OFF";
+}
+
+function ensureAudioReady() {
+  if (!appliedSettings.soundOn) return;
+  if (!audioContext) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    audioContext = new Ctx();
+  }
+  if (audioContext.state === "suspended") {
+    audioContext.resume().catch(() => {
+      // Ignore resume failures caused by browser gesture restrictions.
+    });
+  }
+}
+
+function playTone({
+  frequency,
+  duration = 0.08,
+  type = "sine",
+  volume = 0.05,
+  when = 0,
+  slideTo = null,
+}) {
+  if (!appliedSettings.soundOn || !audioContext || audioContext.state !== "running") {
+    return;
+  }
+
+  const now = audioContext.currentTime + when;
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, now);
+  if (slideTo) {
+    oscillator.frequency.exponentialRampToValueAtTime(slideTo, now + duration);
+  }
+
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(volume, now + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+  oscillator.connect(gain);
+  gain.connect(audioContext.destination);
+  oscillator.start(now);
+  oscillator.stop(now + duration + 0.01);
+}
+
+function playEatSound() {
+  playTone({
+    frequency: 520,
+    duration: 0.07,
+    type: "triangle",
+    volume: 0.045,
+    slideTo: 740,
+  });
+}
+
+function playGameOverSound() {
+  playTone({
+    frequency: 310,
+    duration: 0.12,
+    type: "sawtooth",
+    volume: 0.05,
+    slideTo: 220,
+  });
+  playTone({
+    frequency: 220,
+    duration: 0.2,
+    type: "square",
+    volume: 0.04,
+    when: 0.11,
+    slideTo: 130,
+  });
 }
 
 function draw() {
