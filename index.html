@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neon Snake</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="hud">
+      <h1>Neon Snake</h1>
+      <div class="hud-right">
+        <p id="score">Score: 0</p>
+        <p id="status">Ready</p>
+        <button id="startBtn" type="button">Start Game</button>
+      </div>
+    </header>
+
+    <section class="board-wrap" aria-label="Snake game board">
+      <canvas id="gameCanvas" width="600" height="600"></canvas>
+      <div id="overlay" class="overlay hidden" role="dialog" aria-live="polite">
+        <h2 id="overlayTitle">Game Over</h2>
+        <p id="overlayText">Press Restart to play again.</p>
+      </div>
+    </section>
+
+    <footer class="help">
+      <p>Move: Arrow Keys or WASD</p>
+      <p>Pause/Resume: Spacebar</p>
+    </footer>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
