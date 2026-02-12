@@ -11,6 +11,9 @@ const startBtn = document.getElementById("startBtn");
 const overlay = document.getElementById("overlay");
 const overlayTitle = document.getElementById("overlayTitle");
 const overlayText = document.getElementById("overlayText");
+const boardWrap = document.querySelector(".board-wrap");
+const touchDirectionButtons = document.querySelectorAll(".touch-btn[data-dir]");
+const pauseTouchBtn = document.getElementById("pauseTouchBtn");
 
 const gridSizeSelect = document.getElementById("gridSizeSelect");
 const speedSelect = document.getElementById("speedSelect");
@@ -121,6 +124,7 @@ let isRunning = false;
 let isPaused = false;
 let hasStarted = false;
 let audioContext = null;
+let touchStartPoint = null;
 
 // Settings are read from the panel and only applied when restart/start is pressed.
 let appliedSettings = loadSettings();
@@ -151,6 +155,7 @@ startBtn.addEventListener("click", () => {
 });
 
 window.addEventListener("keydown", handleKeydown);
+setupTouchControls();
 
 function initializeSettingsUI() {
   gridSizeSelect.value = String(appliedSettings.gridSize);
@@ -242,12 +247,7 @@ function handleKeydown(event) {
   }
 
   const nextDir = getDirectionFromKey(key);
-  if (!nextDir || !isRunning || isPaused) return;
-
-  // Prevent reverse turns between ticks when users press quickly.
-  if (isReverse(nextDir, pendingDirection)) return;
-
-  pendingDirection = nextDir;
+  requestDirection(nextDir);
 }
 
 function getDirectionFromKey(key) {
@@ -279,6 +279,7 @@ function startGame() {
   statusEl.textContent = "Running";
   syncTickInterval();
   updateEffectStatus();
+  updatePauseTouchButton();
 }
 
 function resetGame() {
@@ -311,6 +312,7 @@ function resetGame() {
   hasStarted = false;
   statusEl.textContent = "Ready";
   updateEffectStatus();
+  updatePauseTouchButton();
   renderScores();
   setOverlay(true, "Neon Snake", "Press Start Game to begin.");
   draw();
@@ -332,6 +334,7 @@ function togglePause() {
     setOverlay(false);
     syncTickInterval();
   }
+  updatePauseTouchButton();
 }
 
 function tick() {
@@ -511,11 +514,90 @@ function gameOver() {
   pausedAt = null;
   statusEl.textContent = "Game Over";
   updateEffectStatus();
+  updatePauseTouchButton();
   setOverlay(
     true,
     "Game Over",
     `Final Score: ${score}. High Score: ${highScore}. Press Restart Game.`,
   );
+}
+
+function requestDirection(nextDir) {
+  if (!nextDir || !isRunning || isPaused) return;
+
+  // Prevent reverse turns between ticks when users press quickly.
+  if (isReverse(nextDir, pendingDirection)) return;
+
+  pendingDirection = nextDir;
+}
+
+function setupTouchControls() {
+  touchDirectionButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      requestDirection(getDirectionFromControl(button.dataset.dir));
+    });
+  });
+
+  pauseTouchBtn.addEventListener("click", () => {
+    ensureAudioReady();
+    if (hasStarted) {
+      togglePause();
+    }
+  });
+
+  boardWrap.addEventListener(
+    "touchstart",
+    (event) => {
+      const firstTouch = event.changedTouches[0];
+      touchStartPoint = {
+        x: firstTouch.clientX,
+        y: firstTouch.clientY,
+      };
+    },
+    { passive: true },
+  );
+
+  boardWrap.addEventListener(
+    "touchend",
+    (event) => {
+      if (!touchStartPoint) return;
+      const firstTouch = event.changedTouches[0];
+      const deltaX = firstTouch.clientX - touchStartPoint.x;
+      const deltaY = firstTouch.clientY - touchStartPoint.y;
+      touchStartPoint = null;
+
+      const minSwipe = 24;
+      if (Math.abs(deltaX) < minSwipe && Math.abs(deltaY) < minSwipe) return;
+
+      const direction =
+        Math.abs(deltaX) > Math.abs(deltaY)
+          ? deltaX > 0
+            ? "right"
+            : "left"
+          : deltaY > 0
+            ? "down"
+            : "up";
+
+      requestDirection(getDirectionFromControl(direction));
+    },
+    { passive: true },
+  );
+}
+
+function getDirectionFromControl(direction) {
+  const map = {
+    up: { x: 0, y: -1 },
+    down: { x: 0, y: 1 },
+    left: { x: -1, y: 0 },
+    right: { x: 1, y: 0 },
+  };
+  return map[direction] || null;
+}
+
+function updatePauseTouchButton() {
+  if (!pauseTouchBtn) return;
+  pauseTouchBtn.disabled = !hasStarted || !isRunning;
+  pauseTouchBtn.textContent = isPaused ? "Resume" : "Pause";
 }
 
 function setOverlay(show, title = "", text = "") {
