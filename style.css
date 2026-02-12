@@ -68,13 +68,19 @@ body {
 
 #score,
 #highScore,
-#status {
+#status,
+#effectStatus {
   margin: 0;
   font-size: 0.95rem;
 }
 
 #status {
   color: var(--accent);
+}
+
+#effectStatus {
+  color: var(--accent-2);
+  font-size: 0.82rem;
 }
 
 #startBtn {
